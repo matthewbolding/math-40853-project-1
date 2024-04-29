@@ -1,0 +1,341 @@
+---
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    number_sections: true
+    extra_dependencies: ["float"]
+geometry: margin=1in
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+\noindent{\large\bfseries Matthew Bolding}
+\vspace{-5pt}
+
+\noindent{\large\bfseries Dr. Nelis Potgieter}
+\vspace{-5pt}
+
+\noindent{\large\bfseries MATH 40853–015}
+\vspace{-5pt}
+
+\noindent{\large\bfseries March 10\textsuperscript{th}, 2023}
+\vspace{-5pt}
+
+\begin{center}
+    \LARGE\bfseries Regression and Time Series: Project 1
+\end{center}
+\vspace{-10pt}
+\section{Training Linear Models}
+
+Before beginning to train any models from the `txhousing` dataset, we must first split the housing data for three selected markets, those being Fort Worth, Austin, and Houston. Many of the following operations, like this one, involve R code behind the scenes. This part's code may be found [$\color{blue}{\text{here}}$](#import-data).
+
+```{r separate-data, results="hold", echo=FALSE}
+library(tidyverse)
+
+fortWorthHousing <- txhousing[txhousing$city == "Fort Worth", ]
+austinHousing <- txhousing[txhousing$city == "Austin", ]
+houstonHousing <- txhousing[txhousing$city == "Houston", ]
+```
+
+\subsection{Fort Worth Housing Market}
+
+```{r fort-worth-model-train-summary, echo=FALSE}
+fortWorthModel <- lm(log(volume) ~ log(sales), data = fortWorthHousing)
+```
+
+```{r mse-r2-function, echo=FALSE,}
+getMSE <- function(model) {
+  return(summary(model)$sigma^2)
+}
+
+getR2 <- function(model) {
+  return(summary(model)$r.squared)
+}
+```
+
+The model for the Fort Worth housing market---trained in [$\color{blue}{\text{this way}}$](#train-models)---may be written in the form of
+
+$$\widehat{\text{Volume}_\text{Fort Worth}} = 9.14352 + 1.40460\,\text{Sales}$$
+
+where both the predictor and the outcome variable are log scaled. Running the `summary` command on the trained linear model, we can recover the $R^2$ metric with the `Multiple R-squared` value, which is the proportion of variability in the dataset explained by the model. This model's $R^2$ value is `r getR2(fortWorthModel)`.
+
+Now we proceed with a residual analysis, a crucial task in validating the model for the dataset. A residual is what has been left unexplained by the model, i.e., $e_i = y_i - \hat{y_i},$ and residuals may be standardized by the expression $e_i^* = e_i(\text{MSE})^{-1/2},$ where MSE is the mean square error of the model---an estimator for the error variance term $\sigma_\epsilon^2.$ In the case of simple linear regression, $\text{MSE} = \tfrac{1}{n - 2}\sum_{i = 1}^n e_i^2.$ [$\color{blue}{\text{These functions}}$](#get-mse-r2) return $R^2$ and MSE values.
+
+```{r fort-worth-plots, fig.show="hold", out.width="50%", fig.height=3.75, echo=FALSE}
+createPlots <- function(city, model, housingData) {
+  # Regression Line Plot
+  plot(log(housingData$volume) ~ log(housingData$sales),
+       xlab = "Sales (Log Scaled)",
+       ylab = "Volume (Log Scaled)",
+       main = paste(city, "Regression Line"))
+  abline(model, untf=F)
+  
+  # Calculate the Standardized Residuals
+  residuals <- model$residuals
+  standardizedResiduals <- residuals/summary(model)$sigma
+  
+  # QQ Plot
+  qqnorm(standardizedResiduals,
+         main = paste(city, "Normal Q-Q Plot"))
+  qqline(standardizedResiduals)
+  
+  # Plot scaled Sales vs. Standardized Residuals
+  plot(log(housingData$sales), standardizedResiduals,
+       xlab = "Sales (Log Scaled)",
+       ylab = "Standardized Residuals",
+       main =  paste(city, "Sales vs. Standardized Residuals"),
+       ylim = c(-3.5, 3.5))
+  
+  abline(a = -2, b = 0, lty = 2, col = "orange")
+  abline(a = 2, b = 0, lty = 2, col = "orange")
+  abline(a = -3, b = 0, col = "red")
+  abline(a = 3, b = 0, col = "red")
+  
+  # Plot Index vs. Standardized Residuals
+  plot(standardizedResiduals,
+       ylab = "Standardized Residuals",
+       main = paste(city, "Index vs. Standardized Residuals"))
+}
+
+createPlots("Fort Worth", fortWorthModel, fortWorthHousing)
+```
+
+First, we inspect the **Fort Worth Normal Q-Q Plot** plot. (See the function to create all plots [$\color{blue}{\text{here}}$](#plot-functions).) Observe that the normal line passes through the data points. We may then make a reasonable assumption that the data follows a normal distribution.
+
+Consider the **Fort Worth Sales vs. Standardized Residuals** plot. Before making any inferences from the plot, recall the 68--95--99.7 rule which stipulates that within one standard deviation from the mean in a normal distribution, we should expect to see 68% of the values, within two standard deviations, 95%, and within three standard deviations, 99.7%. Therefore, having values that are differ from the mean by more than 2 or 3 standard deviations aren't a problem in and of themselves---in fact, they might contains valuable information about the dataset.
+
+Recall $e_i^*$, and note that any observation with $|e_i^*| \geq 2$ is a potential outlier, and since the regression coefficients $b_0$ and $b_1$ for intercept and slope, respectively, are weighted values, these observations might have undue influence on the model's accuracy, slope, and intercept terms. We see that 4 of 187 $e_i^*$ are not in the interval $[-2, 2]$, which makes up merely 2.14% of the dataset. There exists 1 $e_i^* \notin [-3, 3],$ but even still, this singular data point consists of only 0.5% of all values, so these anomalies should not be cause for concern since $n$ is large.
+
+Viewing **Index vs. Standardized Residuals** shows that there might be some relationship between the order in which the data samples were collected and the error of the model. The model, trained on chronologically sorted data, underestimates the home volume for earlier data points but overestimates for more recent ones. And what's more, there's a non-trivial correlation between the `date` of collection and the `volume`: `r cor(fortWorthHousing$date, fortWorthHousing$volume)`.
+
+Although this relationship exists, this fact does not undermine the model as a whole---the model does not suffer from heteroscedasticity, a situation in which variance varies by observation. While the $\epsilon_i$ might not be completely independent, the individual observations maintain random variance. This observation might suggest that one month's housing market appears to influence the next, so this problem could likely benefit from a time series analysis.
+
+\subsection{Austin Housing Market}
+
+```{r austin-model-train-summary, echo=FALSE}
+austinModel <- lm(log(volume) ~ log(sales), data = austinHousing)
+```
+
+Like for Fort Worth, a model may be trained for the Austin housing market, and the equation of the trained model, where the predictor and outcome variable log-scaled, is $$\widehat{\text{Volume}_\text{Austin}} = 10.03255 + 1.30772\,\text{Sales}.$$
+
+Similarly to `fortWorthModel`, we may recover the a metric that assesses the model's accuracy, the $R^2$ value, with the `Multiple-R-squared` field; this model's $R^2$ value is `r getR2(austinModel)`.
+
+```{r austin-plots, fig.show="hold", out.width="50%", fig.height=3.75, echo=FALSE}
+createPlots("Austin", austinModel, austinHousing)
+```
+
+In terms of the residual analysis, we see much of the same. Viewing the **Austin Sales vs. Standardized Residuals** plot, we see that there's only one observation which could be an outlier, and no $|e_i^*| \geq 3.$
+
+And in the **Austin Sales vs. Standardized Residuals** graph, we again see a relationship between the standardized residuals and their index. Like the corresponding graph for Fort Worth, we do not see the variability of the dataset change, however; the variance of the $e_i^*$ appear to remain constant.
+
+\subsection{Houston Housing Market}
+
+A model may be trained for the Houston housing market.
+
+```{r houston-model-train-summary, echo=FALSE}
+houstonModel <- lm(log(volume) ~ log(sales), data = houstonHousing)
+```
+
+The trained model's equation, where both `Volume` and `Sales` are log scaled, is $$\widehat{\text{Volume}_\text{Houston}} = 8.75218 + 1.39982\,\text{Sales}.$$
+
+According to the `Multiple R-squared` statistic, the model has an $R^2$ value of `r getR2(houstonModel)`, so the model explains `r round(getR2(houstonModel) * 100, 2)`% of the variability in the dataset.
+
+```{r houston-plots, fig.show="hold", out.width="50%", fig.height=3.75, echo=FALSE}
+createPlots("Houston", houstonModel, houstonHousing)
+```
+
+The residual analysis plot **Houston Sales vs. Standardized Residuals** for Houston's housing market model shows much of the same. Although there are 4 potential outliers, these are not of great concern; they make up a small portion of the dataset.
+
+As we would almost come to expect at this point, the **Houston Index vs. Standardized Residuals** scatter plot shows a relationship between an observation's index and its standardized residual. The variance between observations appears to stay the same, however, so the model retains homoscedasticity.
+
+\section{Slope Parameter Comparison}
+
+We might want to compare the slopes of all the models to determine if there's a similar relationship between the three housing markets analyzed. To perform the comparison, we will construct a 95% confidence interval, and if there's overlap between the intervals, then one could reasonably say that the relationship between sales and volume within one market is similar to relationships in others.
+
+We can calculate these confidence intervals with the following equation $$\left(b_1 \pm t_{\alpha/2,n-2} \cdot se(b_1)\right),$$ where $se(b_1)$ is the standard error of the slope term. Here, we use the $t$-distribution since we assumed normality for all the markets analyzed.
+
+See the function definition for `confidenceInterval95` <span style="color: blue;">[here](#ci-function)</span> and the one for `printCIInterval` <span style="color: blue;">[here](#print-interval-function)</span>.
+
+```{r ciFunctionHide, echo=FALSE}
+confidenceInterval95 <- function(model, housingData) {
+  b1 <- model$coefficients[[2]]
+  std.err.b1 <- sqrt(summary(model)$sigma^2
+                     /((nrow(housingData) - 1) * sd(log(housingData$sales))^2))
+  t.value <- qt(0.975, nrow(housingData) - 2)
+  
+  upperBound <- b1 - (std.err.b1 * t.value)
+  lowerBound <- b1 + (std.err.b1 * t.value)
+  return(c(upperBound, lowerBound))
+}
+```
+
+```{r interval-print, eval=TRUE, echo=FALSE}
+printPIInterval <- function(city, pair) {
+  cat(paste(city, " 95% Prediction Interval: ", "(", round(pair[1], 3), ", ", round(pair[2], 3), ")\n", sep = ""))
+}
+
+printCIInterval <- function(city, pair) {
+  cat(paste(city, " 95% Confidence Interval: ", "(", round(pair[1], 4), ", ", round(pair[2], 4), ")\n", sep = ""))
+}
+```
+
+```{r calculate-cis, results='hold'}
+printCIInterval("Fort Worth", confidenceInterval95(fortWorthModel, fortWorthHousing))
+printCIInterval("Austin", confidenceInterval95(austinModel, austinHousing))
+printCIInterval("Houston", confidenceInterval95(houstonModel, houstonHousing))
+```
+
+Observe that within all the 95% confidence intervals for the slope of all models across the markets, an overlap does exist. Hence, the relationship between sales and volume is comparable across markets.
+
+\section{95\% Prediction Interval for \texttt{volume}}
+
+We will now calculate the 95% prediction intervals for each of the markets with a sales totaling 500 units. The equation for the confidence interval, $$\left(\widehat{\text{Volume}}^* \pm\,t_{\alpha/2,n-2} \cdot se(\text{pred})\right),$$ but it uses the standard error of the prediction. Again, we use the $t$-distribution for the same reason as we did for the confidence interval calculations.
+
+See the function definition for `predicitonInterval95` [here](#pi-function), and go [here](#print-interval-function) to see the definition for `printPIInterval`.
+
+```{r piFunctionHide, echo=FALSE}
+predictionInterval95 <- function(model, housingData, value) {
+  prediction <- predict(model, newdata = data.frame(sales = value))[[1]]
+  mse <- getMSE(model)
+  variance <- sd(log(housingData$sales))^2
+  size <- nrow(housingData)
+  mean <- mean(log(housingData$sales))
+  
+  t.value <- qt(0.975, size - 2)
+  
+  se.pred <- sqrt(mse * (1 + (1/size) + ((prediction - mean)^2/((size - 1) * variance))))
+  
+  upperBound <- prediction + (se.pred * t.value)
+  lowerBound <- prediction - (se.pred * t.value)
+  return(c(exp(lowerBound), exp(upperBound)))
+}
+```
+
+```{r calculate-pis, results='hold'}
+printPIInterval("Fort Worth", predictionInterval95(fortWorthModel, fortWorthHousing, 500))
+printPIInterval("Austin", predictionInterval95(austinModel, austinHousing, 500))
+printPIInterval("Houston", predictionInterval95(houstonModel, houstonHousing, 500))
+```
+
+We have now calculated the 95% prediction intervals for the three housing markets when sales equals 500.
+
+\newpage
+\section{Appendix}
+Here is all the code I used to compile this report.
+
+<span id="import-data">Importing and splitting the data into the various markets.</span>
+```{r separate-data-CODE, results="hold", echo=TRUE, eval=FALSE}
+library(tidyverse)
+
+fortWorthHousing <- txhousing[txhousing$city == "Fort Worth", ]
+austinHousing <- txhousing[txhousing$city == "Austin", ]
+houstonHousing <- txhousing[txhousing$city == "Houston", ]
+```
+
+<span id="train-models">Training models for each of the selected markets.</span>
+```{r train-model-CODE, echo=TRUE, eval=FALSE}
+fortWorthModel <- lm(log(volume) ~ log(sales), data = fortWorthHousing)
+austinModel <- lm(log(volume) ~ log(sales), data = austinHousing)
+houstonModel <- lm(log(volume) ~ log(sales), data = houstonHousing)
+```
+
+<span id="get-mse-r2">Recovering the Mean Square Error and $R^2$ values.</span>
+```{r mse-r2-function-CODE, echo=TRUE, eval=FALSE}
+getMSE <- function(model) {
+  return(summary(model)$sigma^2)
+}
+
+getR2 <- function(model) {
+  return(summary(model)$r.squared)
+}
+```
+
+<span id="plot-functions">Plotting four graphs with a single function: the regression line, the Normal Q-Q plot, sales verses standardized residuals, and index verses standardized residuals.</span>
+```{r plots-function, echo=TRUE, eval=FALSE}
+createPlots <- function(city, model, housingData) {
+  # Regression Line Plot
+  plot(log(housingData$volume) ~ log(housingData$sales),
+       xlab = "Sales (Log Scaled)",
+       ylab = "Volume (Log Scaled)",
+       main = paste(city, "Regression Line"))
+  abline(model, untf=F)
+  
+  # Calculate the Standardized Residuals
+  residuals <- model$residuals
+  standardizedResiduals <- residuals/summary(model)$sigma
+  
+  # QQ Plot
+  qqnorm(standardizedResiduals,
+         main = paste(city, "Normal Q-Q Plot"))
+  qqline(standardizedResiduals)
+  
+  # Plot scaled Sales vs. Standardized Residuals
+  plot(log(housingData$sales), standardizedResiduals,
+       xlab = "Sales (Log Scaled)",
+       ylab = "Standardized Residuals",
+       main =  paste(city, "Sales vs. Standardized Residuals"),
+       ylim = c(-3.5, 3.5))
+  
+  abline(a = -2, b = 0, lty = 2, col = "orange")
+  abline(a = 2, b = 0, lty = 2, col = "orange")
+  abline(a = -3, b = 0, col = "red")
+  abline(a = 3, b = 0, col = "red")
+  
+  # Plot Index vs. Standardized Residuals
+  plot(standardizedResiduals,
+       ylab = "Standardized Residuals",
+       main = paste(city, "Index vs. Standardized Residuals"))
+}
+```
+
+<span id="print-interval-function">Function definitions to print the well-formatted intervals.</span>
+```{r interval-print-CODE, eval=FALSE, echo=TRUE}
+printPIInterval <- function(city, pair) {
+  cat(paste(city, " 95% Prediction Interval: ", "(", round(pair[1], 3), 
+            ", ", round(pair[2], 3), ")\n", sep = ""))
+}
+
+printCIInterval <- function(city, pair) {
+  cat(paste(city, " 95% Confidence Interval: ", "(", round(pair[1], 4), 
+            ", ", round(pair[2], 4), ")\n", sep = ""))
+}
+```
+
+<span id="ci-function">Function definition to calculate the 95% confidence intervals.</span>
+```{r ciFunctionHide-CODE, echo=TRUE, eval=FALSE}
+confidenceInterval95 <- function(model, housingData) {
+  b1 <- model$coefficients[[2]]
+  
+  # At the time of writing this function, I did not recall that the summary
+  # statistics for a linear model outputs the standard error for the slope
+  # parameter... I suppose this could be simpler!
+  
+  std.err.b1 <- sqrt(summary(model)$sigma^2
+                     /((nrow(housingData) - 1) * sd(log(housingData$sales))^2))
+  t.value <- qt(0.975, nrow(housingData) - 2)
+  
+  upperBound <- b1 - (std.err.b1 * t.value)
+  lowerBound <- b1 + (std.err.b1 * t.value)
+  return(c(upperBound, lowerBound))
+}
+```
+
+<span id="pi-function">Function definition to calculate the 95% prediction intervals.</span>
+```{r piFunctionHide-CODE, echo=TRUE, eval=FALSE}
+predictionInterval95 <- function(model, housingData, value) {
+  prediction <- predict(model, newdata = data.frame(sales = value))[[1]]
+  mse <- summary(model)$sigma^2
+  variance <- sd(log(housingData$sales))^2
+  size <- nrow(housingData)
+  mean <- mean(log(housingData$sales))
+  
+  t.value <- qt(0.975, size - 2)
+  
+  se.pred <- sqrt(mse * (1 + (1/size) + ((prediction - mean)^2/((size - 1) * variance))))
+  
+  upperBound <- prediction + (se.pred * t.value)
+  lowerBound <- prediction - (se.pred * t.value)
+  return(c(exp(lowerBound), exp(upperBound)))
+}
